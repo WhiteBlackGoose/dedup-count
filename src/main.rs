@@ -39,17 +39,23 @@ fn human(size: u64) -> String {
         ..=10240 => format!("{} b", size),
         ..=10485760 => format!("{} kb", size/1024),
         ..=10737418240 => format!("{} mb", size/1024/1024),
-        _ => format!("{} gb", size/1024/1024),
+        _ => format!("{} gb", size/1024/1024/1024),
     }
 }
 
 fn main() {
+    let args : Vec<String> = std::env::args().collect();
+    if args.len() <= 1 {
+        panic!("Specify path as argument");
+    }
+    let path = args[1].clone();
+
     let stat_init : Stat = Stat { count: 0, unique_count: 0, size: 0, unique_size: 0 };
     let stat_arc = Arc::new(Mutex::new(stat_init));
     let mut stat_arc_t = stat_arc.clone();
     let t = thread::spawn(move || {
         let mut map : HashMap<String, (u64, u64)> = HashMap::new();
-        dive(&Path::new("."), &mut map, &mut stat_arc_t);
+        dive(&Path::new(path.as_str()), &mut map, &mut stat_arc_t);
     });
     println!("FC: File Count");
     println!("S: Size");
@@ -60,7 +66,7 @@ fn main() {
         thread::sleep(Duration::from_millis(500));
         let stat = stat_arc.lock().unwrap();
         let ratio = stat.unique_size as f64 / stat.size as f64;
-        println!("FC: {}; S: {}; UFC: {}; US: {}; R: {:.4}", stat.count, human(stat.size), stat.unique_count, stat.unique_size, ratio);
+        println!("FC: {}; S: {}; UFC: {}; US: {}; R: {:.4}", stat.count, human(stat.size), stat.unique_count, human(stat.unique_size), ratio);
         if t.is_finished() {
             break;
         }

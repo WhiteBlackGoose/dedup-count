@@ -42,7 +42,7 @@
             ];
 
             # cargoSha256 = "";
-            cargoSha256 = "";
+            cargoSha256 = "sha256-diLFjae1E+J4UJtpjnDx+mfK8bDO/QYSBPd5J14UuUs=";
             meta = with pkgs.lib; {
               homepage = "https://github.com/WhiteBlackGoose/dedup-count";
               description = "Count amount of space, that can be saved via file-based deduplication";
