@@ -1,4 +1,4 @@
-use std::{fs, collections::HashMap, path::Path, os::unix::prelude::MetadataExt, thread, time::Duration, sync::{Arc, Mutex}};
+use std::{fs, collections::HashMap, path::{Path, PathBuf}, os::unix::prelude::MetadataExt, thread, time::Duration, sync::{Arc, Mutex}};
 
 use regex::Regex;
 
@@ -10,7 +10,12 @@ pub struct Stat {
     pub curr_path: String
 }
 
-fn dive(p: &Path, excluded: &Vec<Regex>, dic: &mut HashMap<String, (u64, u64)>, stat: &mut Arc<Mutex<Stat>>) {
+pub enum SizeState {
+    Lazy(PathBuf),
+    Evaled(HashMap<String, (u64, u64)>)
+}
+
+fn dive(p: &Path, excluded: &Vec<Regex>, dic: &mut HashMap<u64, SizeState>, stat: &mut Arc<Mutex<Stat>>) {
     if excluded.iter().any(|r| r.is_match(p.as_os_str().to_str().unwrap())) {
         println!("Skipped {}", p.as_os_str().to_str().unwrap());
         return;
@@ -29,29 +34,50 @@ fn dive(p: &Path, excluded: &Vec<Regex>, dic: &mut HashMap<String, (u64, u64)>, 
         } else if m.is_dir() {
             dive(path, excluded, dic, stat);
         } else {
-            let hash = sha256::try_digest(path);
-            if hash.is_err() {
-                println!("Error on {}", path.as_os_str().to_str().unwrap());
-                continue;
-            }
-            let hash = hash.unwrap();
             let mut stat = stat.lock().unwrap();
             stat.count += 1;
-            if stat.count % 30 == 0 {
+            if stat.count % 50 == 0 {
                 stat.curr_path = String::from(path.as_os_str().to_str().unwrap());
             }
             stat.size += m.size();
-            match dic.get(&hash) {
-                Some(p) => {
-                    let (size, count) = p.clone();
-                    dic.insert(hash, (size, count + 1));
+
+
+            if dic.get(&m.size()).is_none() {
+                dic.insert(m.size(), SizeState::Lazy(path.to_path_buf()));
+            } else {
+                let hash = sha256::try_digest(path);
+                if hash.is_err() {
+                    println!("Error on {}", path.as_os_str().to_str().unwrap());
+                    continue;
                 }
-                None => {
-                    stat.unique_count += 1;
-                    stat.unique_size += m.size();
-                    dic.insert(hash, (m.size(), 1));
-                }
-            };
+                let hash = hash.unwrap();
+                let mut map = dic.get_mut(&m.size()).unwrap();
+                let mut map = match map {
+                    SizeState::Lazy(prev_path) => {
+                        let hash_old = sha256::try_digest(prev_path);
+                        if hash_old.is_err() {
+                            println!("Error on {}", prev_path.as_os_str().to_str().unwrap());
+                            continue;
+                        }
+                        let mut hm = HashMap::new();
+                        hm.insert(hash_old, (0, 0));
+                        hm
+                    },
+                    SizeState::Evaled(m) => m
+                };
+                match map.get(&hash) {
+                    Some(p) => {
+                        let (size, count) = p.clone();
+                        map.insert(hash, (size, count + 1));
+                    }
+                    None => {
+                        stat.unique_count += 1;
+                        stat.unique_size += m.size();
+                        map.insert(hash, (m.size(), 1));
+                    }
+                };
+            }
+
         }
     }
 }
